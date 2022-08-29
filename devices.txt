@@ -1,0 +1,26 @@
+
+Emulated devices:
+Amiga joystick
+Amiga mouse
+Amiga paddles
+Amiga proportional joystick
+Atari ST joystick
+Atari ST mouse
+Atari 8-bit joystick
+Atari 8-bit paddles
+Atari 8-bit touchpad
+C64/VIC 20 joystick
+C64 mouse 1351 analog mode
+C64/VIC 20 paddles
+
+
+Pin  Joystick  Amiga mouse  Com. Paddles
+1    Forward   V-pulse      
+2    Back      H-pulse
+3    Left      VQ-pulse     ButtonY
+4    Right     HQ-pulse     ButtonX
+5    Button3   Button3      PotX 480k
+6    Button1   Button1     
+7    +5V       
+8    GND       
+9    Button2   Button2      PotY 480k
