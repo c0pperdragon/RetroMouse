@@ -223,10 +223,16 @@ void run_output()
     }    
 }
 
-
 void setup()
-{   pinMode(PIN_PA4, OUTPUT);    // debugging pin
+{   
+    // quickly turn on pull-ups to allow PS/2 mouse to auto-detect mod
+    pinMode(MOUSE_DATA, INPUT_PULLUP);   e
+    pinMode(MOUSE_CLOCK, INPUT_PULLUP);
+
+    pinMode(PIN_PA4, OUTPUT);    // debugging pin
     digitalWrite(PIN_PA4, LOW);
+
+    delay(1000); // give mouse time to power on
     mode = MODE_UNINITIALIZED;
 }
 

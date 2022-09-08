@@ -89,7 +89,6 @@ int PS2MouseHandler::initialise() {
 int PS2MouseHandler::try_initialise() {
   pull_high(_clock_pin); // idle state
   pull_high(_data_pin);
-  delay(500); // let mouse power on
   write(0xff); // Send Reset to the mouse
   if (_no_mouse){
     return 100; // no mouse
