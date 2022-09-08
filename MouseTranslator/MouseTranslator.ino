@@ -1,3 +1,8 @@
+// Target controller:  
+//   attiny1604 with 16mhz
+//   Disabled millis()/micros() to avoid timing glitches and free timer A
+
+
 #include "PS2MouseHandler.h"
 
 #define MOUSE_DATA  PIN_PB3
@@ -74,32 +79,51 @@ unsigned long potx;
 unsigned long poty;
 void set_pots(unsigned int x, unsigned int y)
 {
-    noInterrupts();
-    potx = x;
-    poty = y;
-    interrupts();
+    TCA0.SINGLE.CMP0BUF = x;
+    TCA0.SINGLE.CMP1BUF = y;
 }
 // triggered when PA7 (PIN_SUBD9) is externally pulled low
 ISR (AC0_AC_vect) 
 {
-    AC0.STATUS = 0x01;  // clear interrupt flag
-    pinMode(SUBD_PIN9, INPUT); 
-    pinMode(SUBD_PIN5, INPUT);
-    TCA0.SINGLE.CNT = 0; // restart the counter
-    TCA0.SINGLE.CMP0 = potx;
-    TCA0.SINGLE.CMP1 = poty;
+    AC0.STATUS = 0x01;        // clear interrupt flag
+    PORTA.PIN7CTRL = 0x00;    // disable pull.up
+    PORTB.PIN1CTRL = 0x00;    // disable pull-up
+    TCA0.SINGLE.CTRLESET = 0x08;  // command to restart the counter
+    TCA0.SINGLE.CTRLESET = 0x04;  // command to update values from buffers
 }
 // triggerd when pull-up for potx should be activated
-ISR (TCA0_CMP0_vect) 
-{
-    TCA0.SINGLE.INTFLAGS = 0x10;   // clear interrupt flag 
-    PORTA.PIN7CTRL = 0x08;         // enable pull.up
+//ISR (TCA0_CMP0_vect) 
+//{
+//    TCA0.SINGLE.INTFLAGS = 0x10;   // clear interrupt flag 
+//    PORTA.PIN7CTRL = 0x08;         // enable pull.up
+//}
+ISR (TCA0_CMP0_vect, ISR_NAKED ) {
+    asm ( 
+         "push r24          \n"  
+         "ldi  r24, 0x10    \n"  
+         "sts  0x0a0b, r24  \n"
+         "ldi  r24, 0x08    \n"
+         "sts  0x0417, r24  \n"
+         "pop  r24          \n"
+         "reti              \n"
+    );
 }
 // triggerd when pull-up for poty should be activated
-ISR (TCA0_CMP1_vect) 
-{
-    TCA0.SINGLE.INTFLAGS = 0x20;   // clear interrupt flag 
-    PORTB.PIN1CTRL = 0x08;         // enable pull-up
+//ISR (TCA0_CMP1_vect) 
+//{
+//    TCA0.SINGLE.INTFLAGS = 0x20;   // clear interrupt flag 
+//    PORTB.PIN1CTRL = 0x08;         // enable pull-up
+//}
+ISR (TCA0_CMP1_vect, ISR_NAKED ) {
+    asm ( 
+         "push r24          \n"  
+         "ldi  r24, 0x20    \n"  
+         "sts  0x0a0b, r24  \n"
+         "ldi  r24, 0x08    \n"
+         "sts  0x0431, r24  \n"
+         "pop  r24          \n"
+         "reti              \n"
+    );
 }
 
 
@@ -201,9 +225,7 @@ void run_output()
 
 
 void setup()
-{   
-    takeOverTCA0();              // keep the megatiny core from interfering with timer A
-    pinMode(PIN_PA4, OUTPUT);    // debugging pin
+{   pinMode(PIN_PA4, OUTPUT);    // debugging pin
     digitalWrite(PIN_PA4, LOW);
     mode = MODE_UNINITIALIZED;
 }

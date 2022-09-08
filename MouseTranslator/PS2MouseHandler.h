@@ -35,6 +35,7 @@ class PS2MouseHandler
     void hold_incoming_data();
     uint8_t read();
     int try_initialise();
+    bool wait_for_pin(int pin, int val, int timeout);
 
   public:
     PS2MouseHandler(int, int, int mode = PS2_MOUSE_REMOTE);
