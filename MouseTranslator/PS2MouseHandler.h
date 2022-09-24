@@ -49,7 +49,7 @@ class PS2MouseHandler
     int z_movement();
     bool button(int);
     bool clicked(int);
-    void get_data();
+    int get_data();
     void enable_data_reporting();
     void disable_data_reporting();
     void set_remote_mode();

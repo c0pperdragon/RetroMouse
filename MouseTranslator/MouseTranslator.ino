@@ -1,32 +1,27 @@
 // Target controller:  
 //   attiny1604 with 16mhz
 //   Disabled millis()/micros() to avoid timing glitches and free timer A
-
+//   setup time 0 ms
 
 #include "PS2MouseHandler.h"
 
 #define MOUSE_DATA  PIN_PB3
 #define MOUSE_CLOCK PIN_PB2
                                  // C64      Amiga mouse
-#define SUBD_PIN1   PIN_PA3      // up       mouse v
-#define SUBD_PIN2   PIN_PA2      // down     mouse h
-#define SUBD_PIN3   PIN_PA1      // left     mouse vq
-#define SUBD_PIN4   PIN_PB0      // right    mouse hq
-#define SUBD_PIN5   PIN_PB1      // pot y    middle button
-#define SUBD_PIN6   PIN_PA6      // button   left buttonm
+#define SUBD_PIN1   PIN_PA1      // up       mouse v
+#define SUBD_PIN2   PIN_PA3      // down     mouse h
+#define SUBD_PIN3   PIN_PA4      // left     mouse vq
+#define SUBD_PIN4   PIN_PA5      // right    mouse hq
+#define SUBD_PIN5   PIN_PA6      // pot y    middle button
+#define SUBD_PIN6   PIN_PA2      // button   left buttonm
 #define SUBD_PIN9   PIN_PA7      // pot x    right button
 
 #define MODE_UNINITIALIZED 0
-#define MODE_JOYSTICK      1
-#define MODE_AMIGAMOUSE    2
+#define MODE_AMIGAMOUSE    1
+#define MODE_C64MOUSE      2
 #define MODE_PADDLES       3
 
-#define PADDLEMIN 3900
-#define PADDLEMAX 7750
-
 PS2MouseHandler mouse(MOUSE_CLOCK, MOUSE_DATA);
-
-byte mode;
 unsigned int x;
 unsigned int y;
 
@@ -70,8 +65,8 @@ void init_subd(bool emulate_pots)
         TCA0.SINGLE.EVCTRL = 0x00;         // no event couting                
         TCA0.SINGLE.CNT = 0;
         TCA0.SINGLE.PER = 0xffff;
-        TCA0.SINGLE.CMP0 = PADDLEMIN;
-        TCA0.SINGLE.CMP1 = PADDLEMIN;
+        TCA0.SINGLE.CMP0 = 0xffff;
+        TCA0.SINGLE.CMP1 = 0xffff;
         TCA0.SINGLE.INTCTRL = 0x30;        // enable compare interrupt on cannels 0 & 1 
     }
 }
@@ -87,7 +82,7 @@ ISR (AC0_AC_vect)
 {
     AC0.STATUS = 0x01;        // clear interrupt flag
     PORTA.PIN7CTRL = 0x00;    // disable pull.up
-    PORTB.PIN1CTRL = 0x00;    // disable pull-up
+    PORTA.PIN6CTRL = 0x00;    // disable pull-up
     TCA0.SINGLE.CTRLESET = 0x08;  // command to restart the counter
     TCA0.SINGLE.CTRLESET = 0x04;  // command to update values from buffers
 }
@@ -112,7 +107,7 @@ ISR (TCA0_CMP0_vect, ISR_NAKED ) {
 //ISR (TCA0_CMP1_vect) 
 //{
 //    TCA0.SINGLE.INTFLAGS = 0x20;   // clear interrupt flag 
-//    PORTB.PIN1CTRL = 0x08;         // enable pull-up
+//    PORTA.PIN6CTRL = 0x08;         // enable pull-up
 //}
 ISR (TCA0_CMP1_vect, ISR_NAKED ) {
     asm ( 
@@ -120,26 +115,12 @@ ISR (TCA0_CMP1_vect, ISR_NAKED ) {
          "ldi  r24, 0x20    \n"  
          "sts  0x0a0b, r24  \n"
          "ldi  r24, 0x08    \n"
-         "sts  0x0431, r24  \n"
+         "sts  0x0416, r24  \n"
          "pop  r24          \n"
          "reti              \n"
     );
 }
 
-
-void init_joystick()
-{
-    init_subd(false);
-}
-
-void run_joystick()
-{
-    set_subd(SUBD_PIN1, mouse.y_movement()<0);
-    set_subd(SUBD_PIN2, mouse.y_movement()>0);
-    set_subd(SUBD_PIN3, mouse.x_movement()<0);
-    set_subd(SUBD_PIN4, mouse.x_movement()>0);
-    set_subd(SUBD_PIN6, mouse.button(0));
-}
 
 unsigned int amiga_x;
 unsigned int amiga_y;
@@ -179,6 +160,29 @@ void run_amigamouse()
     }
 }
 
+
+#define C64MOUSEMIN 5100
+#define C64MOUSEMAX 7200
+
+void init_c64mouse()
+{
+    init_subd(true);
+}
+
+void run_c64mouse()
+{
+    set_subd(SUBD_PIN6, mouse.button(0)!=0);
+    set_subd(SUBD_PIN1, mouse.button(2)!=0);
+    long scalex = x & 0x1ff;
+    long scaley = y & 0x1ff;
+    scalex = (scalex * (C64MOUSEMAX-C64MOUSEMIN)) >> 9;
+    scaley = (scaley * (C64MOUSEMAX-C64MOUSEMIN)) >> 9;
+    set_pots(C64MOUSEMIN+(int)scalex, C64MOUSEMIN+(int)scaley);
+}
+
+#define PADDLEMIN 3900
+#define PADDLEMAX 7750
+
 void init_paddles()
 {
     init_subd(true);
@@ -197,61 +201,50 @@ void run_paddles()
 }
 
 
-void detect_mode()
+int detect_mode()
 {
-//    mode = MODE_JOYSTICK;  
-    mode = MODE_PADDLES;  
+    return MODE_C64MOUSE;  
+//    return MODE_PADDLES;  
 }
 
-void init_output()
-{
-    switch (mode)
-    {
-        case MODE_JOYSTICK:   init_joystick();   break;
-        case MODE_AMIGAMOUSE: init_amigamouse(); break;
-        case MODE_PADDLES:    init_paddles(); break;
-    }      
-}
-
-void run_output()
-{
-    switch (mode)
-    {
-        case MODE_JOYSTICK:   run_joystick();   break;
-        case MODE_AMIGAMOUSE: run_amigamouse(); break;
-        case MODE_PADDLES:    run_paddles(); break;
-    }    
-}
 
 void setup()
 {   
-    // quickly turn on pull-ups to allow PS/2 mouse to auto-detect mod
-    pinMode(MOUSE_DATA, INPUT_PULLUP);   e
-    pinMode(MOUSE_CLOCK, INPUT_PULLUP);
-
     pinMode(PIN_PA4, OUTPUT);    // debugging pin
     digitalWrite(PIN_PA4, LOW);
-
-    delay(1000); // give mouse time to power on
-    mode = MODE_UNINITIALIZED;
 }
 
 void loop()
 {
-    if (mode==MODE_UNINITIALIZED)
-    {
-        if (mouse.initialise()!=0) { return; }
-        
-        detect_mode();      
-        init_output();
-        x = 0;
-        y = 0;
-        return;
-    }
+    // quickly turn on pull-ups to allow PS/2 mouse to auto-detect mode
+    pinMode(MOUSE_DATA, INPUT_PULLUP); 
+    pinMode(MOUSE_CLOCK, INPUT_PULLUP);
+    delay(1000); // give mouse time to power on
+    
+    if (mouse.initialise()!=0) { return; }
+    x = 0;
+    y = 0;
 
-    mouse.get_data();
-    x = x + (unsigned int) mouse.x_movement();
-    y = y + (unsigned int) mouse.y_movement();     
-    run_output();
+    int mode = detect_mode();
+    switch (mode)
+    {
+        case MODE_AMIGAMOUSE: init_amigamouse(); break;
+        case MODE_C64MOUSE:   init_c64mouse();   break;
+        case MODE_PADDLES:    init_paddles(); break;
+    } 
+         
+    for (;;)
+    {
+        if (mouse.get_data()!=0) { return; }
+        x = x + (unsigned int) mouse.x_movement();
+        y = y + (unsigned int) mouse.y_movement();     
+
+        switch (mode)
+        {
+            case MODE_AMIGAMOUSE: run_amigamouse(); break;
+            case MODE_C64MOUSE:   run_c64mouse();   break;
+            case MODE_PADDLES:    run_paddles(); break;
+        }    
+    }
 }
  
