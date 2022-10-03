@@ -215,7 +215,7 @@ void PS2MouseHandler::write(int data) {
   delayMicroseconds(10);
   pull_high(_clock_pin); // Start Bit
   // wait for mouse to take control of clock
-  if (!wait_for_pin(_clock_pin, LOW, 100)) {
+  if (!wait_for_pin(_clock_pin, LOW, 30000)) {
       // no connection to mouse
       pull_high(_data_pin); // back to waiting
       _no_mouse = true;
@@ -247,7 +247,7 @@ void PS2MouseHandler::write(int data) {
   pull_high(_data_pin); // release data line
   wait_for_pin(_data_pin, LOW, 1000);   // while (digitalRead(_data_pin)) {;} // wait for mouse to take over data line
   wait_for_pin(_clock_pin, LOW, 1000);  // while (digitalRead(_clock_pin)) {;} // wait for mouse to take over clock
-  wait_for_pin(_data_pin, HIGH 1000); wait_for_pin(_clock_pin, HIGH, 1000);  // while ((!digitalRead(_clock_pin)) && (!digitalRead(_data_pin))) {;} // wait for mouse to release clock and data
+  wait_for_pin(_data_pin, HIGH, 1000); wait_for_pin(_clock_pin, HIGH, 1000);  // while ((!digitalRead(_clock_pin)) && (!digitalRead(_data_pin))) {;} // wait for mouse to release clock and data
 }
 
 void PS2MouseHandler::hold_incoming_data(){
@@ -284,7 +284,7 @@ uint8_t PS2MouseHandler::read_byte() {
   delayMicroseconds(50);
 
   // read start bit but check for timeout
-  if (!wait_for_pin(_clock_pin, LOW, 100)) {
+  if (!wait_for_pin(_clock_pin, LOW, 1000)) {
       return 0;
       _no_mouse = true;
   }
@@ -300,9 +300,9 @@ uint8_t PS2MouseHandler::read_byte() {
 }
 
 int PS2MouseHandler::read_bit() {
-  wait_for_pin(_clock_pin, HIGH, 1000); // while (digitalRead(_clock_pin)) {;}
+  wait_for_pin(_clock_pin, LOW, 1000); // while (digitalRead(_clock_pin)) {;}
   int bit = digitalRead(_data_pin);
-  wait_for_pin(_clock_pin, LOW, 1000);  // while (!digitalRead(_clock_pin)) {;}
+  wait_for_pin(_clock_pin, HIGH, 1000);  // while (!digitalRead(_clock_pin)) {;}
   return bit;
 }
 

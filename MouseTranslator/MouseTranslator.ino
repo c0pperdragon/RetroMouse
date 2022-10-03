@@ -16,16 +16,20 @@
 #define SUBD_PIN6   PIN_PA2      // button   left buttonm
 #define SUBD_PIN9   PIN_PA7      // pot x    right button
 
-#define MODE_UNINITIALIZED 0
-#define MODE_AMIGAMOUSE    1
-#define MODE_C64MOUSE      2
-#define MODE_PADDLES       3
+#define MODE_AMIGA    1
+#define MODE_C64      2
+byte mode;
 
 PS2MouseHandler mouse(MOUSE_CLOCK, MOUSE_DATA);
 unsigned int x;
 unsigned int y;
 
+
+
 // ------ low-level subd pin handling ---------
+bool countedges;
+int edgecounter;
+
 // set pin to either low (when active) or having a weak pullup
 void set_subd(byte pin, bool active)
 {
@@ -39,7 +43,7 @@ void set_subd(byte pin, bool active)
         pinMode(pin, INPUT_PULLUP);
     }
 }
-void init_subd(bool emulate_pots)
+void init_subd(bool emulate_pots, bool count)
 {
     set_subd(SUBD_PIN1, false);
     set_subd(SUBD_PIN2, false);
@@ -52,11 +56,7 @@ void init_subd(bool emulate_pots)
     TCA0.SINGLE.INTCTRL = 0x00;  // disable TCA0 interrupts
     if (emulate_pots)
     {
-        VREF.CTRLA = 0x01;         // use 1.1V as VREF for the AC
-        AC0.MUXCTRLA = 0x02;       // compare PA7 against voltage reference
-        AC0.CTRLA = 0x27;          // trigger at negative edge, maximum hysteresis
-        AC0.INTCTRL = 0x01;        // enable AC interrupt 
-
+        countedges = false;        
         TCA0.SINGLE.CTRLA = 0x01;          // enable timer at full speed
         TCA0.SINGLE.CTRLB = 0x00;          // normal counting mode
         TCA0.SINGLE.CTRLC = 0x00;          // no timer output on pins
@@ -69,9 +69,19 @@ void init_subd(bool emulate_pots)
         TCA0.SINGLE.CMP1 = 0xffff;
         TCA0.SINGLE.INTCTRL = 0x30;        // enable compare interrupt on cannels 0 & 1 
     }
+    else if (count)
+    {
+        countedges = true;
+        edgecounter = 0;
+    }
+    if (emulate_pots || count)
+    {
+        VREF.CTRLA = 0x01;         // use 1.1V as VREF for the AC
+        AC0.MUXCTRLA = 0x02;       // compare PA7 against voltage reference
+        AC0.CTRLA = 0x27;          // trigger at negative edge, maximum hysteresis
+        AC0.INTCTRL = 0x01;        // enable AC interrupt 
+    }    
 }
-unsigned long potx;
-unsigned long poty;
 void set_pots(unsigned int x, unsigned int y)
 {
     TCA0.SINGLE.CMP0BUF = x;
@@ -81,10 +91,14 @@ void set_pots(unsigned int x, unsigned int y)
 ISR (AC0_AC_vect) 
 {
     AC0.STATUS = 0x01;        // clear interrupt flag
-    PORTA.PIN7CTRL = 0x00;    // disable pull.up
-    PORTA.PIN6CTRL = 0x00;    // disable pull-up
-    TCA0.SINGLE.CTRLESET = 0x08;  // command to restart the counter
-    TCA0.SINGLE.CTRLESET = 0x04;  // command to update values from buffers
+    if (countedges) { edgecounter++; } 
+    else
+    {
+        PORTA.PIN7CTRL = 0x00;    // disable pull.up
+        PORTA.PIN6CTRL = 0x00;    // disable pull-up
+        TCA0.SINGLE.CTRLESET = 0x08;  // command to restart the counter
+        TCA0.SINGLE.CTRLESET = 0x04;  // command to update values from buffers
+    }
 }
 // triggerd when pull-up for potx should be activated
 //ISR (TCA0_CMP0_vect) 
@@ -125,14 +139,14 @@ ISR (TCA0_CMP1_vect, ISR_NAKED ) {
 unsigned int amiga_x;
 unsigned int amiga_y;
 
-void init_amigamouse()
+void init_amiga()
 {
-    init_subd(false);
+    init_subd(false,false);
     amiga_x = 0;
     amiga_y = 0;
 }
 
-void run_amigamouse()
+void run_amiga()
 {
     unsigned int newx = x >> 2;
     unsigned int newy = y >> 2;
@@ -164,74 +178,97 @@ void run_amigamouse()
 #define C64MOUSEMIN 5100
 #define C64MOUSEMAX 7200
 
-void init_c64mouse()
+#define C64PADDLEMIN 3900
+#define C64PADDLEMAX 7750
+
+bool c64_usepaddles;
+int c64_prevleftbutton;
+int c64_countclicks;
+
+void init_c64()
 {
-    init_subd(true);
+    init_subd(true,false);
+    c64_usepaddles = false;
 }
 
-void run_c64mouse()
+void run_c64()
 {
-    set_subd(SUBD_PIN6, mouse.button(0)!=0);
-    set_subd(SUBD_PIN1, mouse.button(2)!=0);
-    long scalex = x & 0x1ff;
-    long scaley = y & 0x1ff;
-    scalex = (scalex * (C64MOUSEMAX-C64MOUSEMIN)) >> 9;
-    scaley = (scaley * (C64MOUSEMAX-C64MOUSEMIN)) >> 9;
-    set_pots(C64MOUSEMIN+(int)scalex, C64MOUSEMIN+(int)scaley);
+    if (c64_usepaddles)
+    {
+        set_subd(SUBD_PIN1, mouse.button(2)!=0);
+        set_subd(SUBD_PIN3, mouse.button(0)!=0);
+        set_subd(SUBD_PIN6, false);
+        if (x<C64PADDLEMIN) { x = C64PADDLEMIN; }
+        if (x>C64PADDLEMAX) { x = C64PADDLEMAX; }
+        if (y<C64PADDLEMIN) { y = C64PADDLEMIN; }
+        if (y>C64PADDLEMAX) { y = C64PADDLEMAX; }
+        set_pots(C64PADDLEMAX-(x-C64PADDLEMIN),y);
+    }
+    else
+    {
+        set_subd(SUBD_PIN1, mouse.button(2)!=0);
+        set_subd(SUBD_PIN3, false);
+        set_subd(SUBD_PIN6, mouse.button(0)!=0);
+        long scalex = x & 0x1ff;
+        long scaley = y & 0x1ff;
+        scalex = (scalex * (C64MOUSEMAX-C64MOUSEMIN)) >> 9;
+        scaley = (scaley * (C64MOUSEMAX-C64MOUSEMIN)) >> 9;
+        set_pots(C64MOUSEMIN+(int)scalex, C64MOUSEMIN+(int)scaley);
+    }
+    // handle manual c64 mode switching
+    if (mouse.button(2)!=0)   // while holding right mouse button 
+    {
+        if (mouse.button(0)!=0 && c64_prevleftbutton==0) { c64_countclicks++; }      
+    }
+    else                      // after releasing right mouse button
+    {
+        if (c64_countclicks==5) { c64_usepaddles = true; }        
+        if (c64_countclicks==6) { c64_usepaddles = false; }
+        c64_countclicks = 0;
+    }
+    c64_prevleftbutton = mouse.button(0);
 }
 
-#define PADDLEMIN 3900
-#define PADDLEMAX 7750
 
-void init_paddles()
+void detect_mode()
 {
-    init_subd(true);
-}
+    init_subd(false,true);
+    delay(1000);
+    noInterrupts();
 
-void run_paddles()
-{
-    set_subd(SUBD_PIN3, mouse.button(0)!=0);
-    set_subd(SUBD_PIN4, mouse.button(1)!=0);
-
-    if (x<PADDLEMIN) { x = PADDLEMIN; }
-    if (x>PADDLEMAX) { x = PADDLEMAX; }
-    if (y<PADDLEMIN) { y = PADDLEMIN; }
-    if (y>PADDLEMAX) { y = PADDLEMAX; }
-    set_pots(PADDLEMAX-(x-PADDLEMIN),y);
-}
-
-
-int detect_mode()
-{
-    return MODE_C64MOUSE;  
-//    return MODE_PADDLES;  
+    if (edgecounter>1000) { mode=MODE_C64; }
+    else { mode=MODE_AMIGA; }
+    
+    interrupts();
+    init_subd(false,false);
 }
 
 
 void setup()
 {   
-    pinMode(PIN_PA4, OUTPUT);    // debugging pin
+    // debugging pin
+    pinMode(PIN_PA4, OUTPUT);    
     digitalWrite(PIN_PA4, LOW);
+    
+    // quickly turn on pull-ups to allow mouse to auto-detect PS/2 mode
+    pinMode(MOUSE_DATA, INPUT_PULLUP); 
+    pinMode(MOUSE_CLOCK, INPUT_PULLUP);
+
+    detect_mode();
+    switch (mode)
+    {
+        case MODE_AMIGA: init_amiga(); break;
+        case MODE_C64:   init_c64();   break;
+    }     
 }
 
 void loop()
 {
-    // quickly turn on pull-ups to allow PS/2 mouse to auto-detect mode
-    pinMode(MOUSE_DATA, INPUT_PULLUP); 
-    pinMode(MOUSE_CLOCK, INPUT_PULLUP);
     delay(1000); // give mouse time to power on
     
     if (mouse.initialise()!=0) { return; }
     x = 0;
     y = 0;
-
-    int mode = detect_mode();
-    switch (mode)
-    {
-        case MODE_AMIGAMOUSE: init_amigamouse(); break;
-        case MODE_C64MOUSE:   init_c64mouse();   break;
-        case MODE_PADDLES:    init_paddles(); break;
-    } 
          
     for (;;)
     {
@@ -241,9 +278,8 @@ void loop()
 
         switch (mode)
         {
-            case MODE_AMIGAMOUSE: run_amigamouse(); break;
-            case MODE_C64MOUSE:   run_c64mouse();   break;
-            case MODE_PADDLES:    run_paddles(); break;
+            case MODE_AMIGA: run_amiga(); break;
+            case MODE_C64:   run_c64();   break;
         }    
     }
 }
