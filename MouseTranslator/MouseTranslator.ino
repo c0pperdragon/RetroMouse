@@ -5,6 +5,7 @@
 
 #include "PS2MouseHandler.h"
 
+#define DEBUG       PIN_PB1
 #define MOUSE_DATA  PIN_PB3
 #define MOUSE_CLOCK PIN_PB2
                                  // C64      Amiga mouse
@@ -18,6 +19,7 @@
 
 #define MODE_AMIGA    1
 #define MODE_C64      2
+#define MODE_ATARI8   3
 byte mode;
 
 PS2MouseHandler mouse(MOUSE_CLOCK, MOUSE_DATA);
@@ -61,7 +63,7 @@ void init_subd(bool emulate_pots, bool count)
         TCA0.SINGLE.CTRLB = 0x00;          // normal counting mode
         TCA0.SINGLE.CTRLC = 0x00;          // no timer output on pins
         TCA0.SINGLE.CTRLD = 0x00;          // disable split mode (use single mode)
-        TCA0.SINGLE.CTRLECLR = 0x03;       // normal register update, couting up
+        TCA0.SINGLE.CTRLECLR = 0x03;       // normal register update, counting up
         TCA0.SINGLE.EVCTRL = 0x00;         // no event couting                
         TCA0.SINGLE.CNT = 0;
         TCA0.SINGLE.PER = 0xffff;
@@ -76,7 +78,7 @@ void init_subd(bool emulate_pots, bool count)
     }
     if (emulate_pots || count)
     {
-        VREF.CTRLA = 0x01;         // use 1.1V as VREF for the AC
+        VREF.CTRLA = 0x00;         // use 0.55V as initial VREF for the AC
         AC0.MUXCTRLA = 0x02;       // compare PA7 against voltage reference
         AC0.CTRLA = 0x27;          // trigger at negative edge, maximum hysteresis
         AC0.INTCTRL = 0x01;        // enable AC interrupt 
@@ -87,18 +89,19 @@ void set_pots(unsigned int x, unsigned int y)
     TCA0.SINGLE.CMP0BUF = x;
     TCA0.SINGLE.CMP1BUF = y;
 }
-// triggered when PA7 (PIN_SUBD9) is externally pulled low
+// triggered when PA7 (PIN_SUBD9) goes low 
 ISR (AC0_AC_vect) 
 {
-    AC0.STATUS = 0x01;        // clear interrupt flag
     if (countedges) { edgecounter++; } 
     else
     {
+        // turn off pull-ups and trigger timer to later re-enable them
         PORTA.PIN7CTRL = 0x00;    // disable pull.up
         PORTA.PIN6CTRL = 0x00;    // disable pull-up
         TCA0.SINGLE.CTRLESET = 0x08;  // command to restart the counter
-        TCA0.SINGLE.CTRLESET = 0x04;  // command to update values from buffers
-    }
+        TCA0.SINGLE.CTRLESET = 0x04;  // command to update values from buffers        
+    }        
+    AC0.STATUS = 0x01;        // clear interrupt flag
 }
 // triggerd when pull-up for potx should be activated
 //ISR (TCA0_CMP0_vect) 
@@ -230,25 +233,52 @@ void run_c64()
 }
 
 
+void init_atari8()
+{
+    init_subd(false,false);
+}
+
+void run_atari8()
+{
+    set_subd(SUBD_PIN1, mouse.button(2)!=0);
+    set_subd(SUBD_PIN3, mouse.button(0)!=0);
+    set_subd(SUBD_PIN6, false);
+
+    // TODO: paddle emulation
+}
+
 void detect_mode()
 {
-    init_subd(false,true);
-    delay(1000);
-    noInterrupts();
-
-    if (edgecounter>1000) { mode=MODE_C64; }
-    else { mode=MODE_AMIGA; }
+    int c;
     
+    init_subd(false,true);
+    delay(500);
+    
+    noInterrupts();
+    c = edgecounter;
     interrupts();
+
     init_subd(false,false);
+    pinMode(SUBD_PIN9, INPUT);
+    delay(500);
+    
+    if (c>500) 
+    { 
+        mode=MODE_C64; 
+    }
+    else 
+    { 
+        if (digitalRead(SUBD_PIN9)==HIGH) { mode=MODE_AMIGA; }
+        else { mode = MODE_ATARI8; }
+    }    
 }
 
 
 void setup()
 {   
     // debugging pin
-    pinMode(PIN_PA4, OUTPUT);    
-    digitalWrite(PIN_PA4, LOW);
+    pinMode(DEBUG, OUTPUT);    
+    digitalWrite(DEBUG, LOW);
     
     // quickly turn on pull-ups to allow mouse to auto-detect PS/2 mode
     pinMode(MOUSE_DATA, INPUT_PULLUP); 
@@ -257,15 +287,14 @@ void setup()
     detect_mode();
     switch (mode)
     {
-        case MODE_AMIGA: init_amiga(); break;
-        case MODE_C64:   init_c64();   break;
+        case MODE_AMIGA:  init_amiga();   break;
+        case MODE_C64:    init_c64();     break;
+        case MODE_ATARI8: init_atari8();  break;
     }     
 }
 
 void loop()
 {
-    delay(1000); // give mouse time to power on
-    
     if (mouse.initialise()!=0) { return; }
     x = 0;
     y = 0;
@@ -278,8 +307,9 @@ void loop()
 
         switch (mode)
         {
-            case MODE_AMIGA: run_amiga(); break;
-            case MODE_C64:   run_c64();   break;
+            case MODE_AMIGA:  run_amiga();  break;
+            case MODE_C64:    run_c64();    break;
+            case MODE_ATARI8: run_atari8(); break;
         }    
     }
 }
