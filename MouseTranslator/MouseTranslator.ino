@@ -19,7 +19,7 @@
 
 #define MODE_AMIGA    1
 #define MODE_C64      2
-#define MODE_ATARI8   3
+#define MODE_ATARI    3
 byte mode;
 
 PS2MouseHandler mouse(MOUSE_CLOCK, MOUSE_DATA);
@@ -30,7 +30,8 @@ unsigned int y;
 
 // ------ low-level subd pin handling ---------
 bool countedges;
-int edgecounter;
+unsigned int edgecounter;
+unsigned int edgeseparation;
 
 // set pin to either low (when active) or having a weak pullup
 void set_subd(byte pin, bool active)
@@ -56,29 +57,29 @@ void init_subd(bool emulate_pots, bool count)
     set_subd(SUBD_PIN9, false);
     AC0.INTCTRL = 0x00;          // disable AC interrupt       
     TCA0.SINGLE.INTCTRL = 0x00;  // disable TCA0 interrupts
+
+    TCA0.SINGLE.CTRLA = 0x01;          // enable timer at full speed
+    TCA0.SINGLE.CTRLB = 0x00;          // normal counting mode
+    TCA0.SINGLE.CTRLC = 0x00;          // no timer output on pins
+    TCA0.SINGLE.CTRLD = 0x00;          // disable split mode (use single mode)
+    TCA0.SINGLE.CTRLECLR = 0x03;       // normal register update, counting up
+    TCA0.SINGLE.EVCTRL = 0x00;         // no event couting                
+    TCA0.SINGLE.CNT = 0;
+    TCA0.SINGLE.PER = 0xffff;
+    TCA0.SINGLE.CMP0 = 0xffff;
+    TCA0.SINGLE.CMP1 = 0xffff;
     if (emulate_pots)
     {
         countedges = false;        
-        TCA0.SINGLE.CTRLA = 0x01;          // enable timer at full speed
-        TCA0.SINGLE.CTRLB = 0x00;          // normal counting mode
-        TCA0.SINGLE.CTRLC = 0x00;          // no timer output on pins
-        TCA0.SINGLE.CTRLD = 0x00;          // disable split mode (use single mode)
-        TCA0.SINGLE.CTRLECLR = 0x03;       // normal register update, counting up
-        TCA0.SINGLE.EVCTRL = 0x00;         // no event couting                
-        TCA0.SINGLE.CNT = 0;
-        TCA0.SINGLE.PER = 0xffff;
-        TCA0.SINGLE.CMP0 = 0xffff;
-        TCA0.SINGLE.CMP1 = 0xffff;
         TCA0.SINGLE.INTCTRL = 0x30;        // enable compare interrupt on cannels 0 & 1 
     }
     else if (count)
     {
         countedges = true;
-        edgecounter = 0;
     }
     if (emulate_pots || count)
     {
-        VREF.CTRLA = 0x00;         // use 0.55V as initial VREF for the AC
+        VREF.CTRLA = 0x00;         // use 0.55V as VREF for the AC
         AC0.MUXCTRLA = 0x02;       // compare PA7 against voltage reference
         AC0.CTRLA = 0x27;          // trigger at negative edge, maximum hysteresis
         AC0.INTCTRL = 0x01;        // enable AC interrupt 
@@ -92,7 +93,20 @@ void set_pots(unsigned int x, unsigned int y)
 // triggered when PA7 (PIN_SUBD9) goes low 
 ISR (AC0_AC_vect) 
 {
-    if (countedges) { edgecounter++; } 
+    if (countedges) 
+    { 
+        unsigned int c = TCA0.SINGLE.CNT; // read counter value to determine period length
+        TCA0.SINGLE.CTRLESET = 0x08;      // command to restart the counter
+        c = c+100;                         // fine-tuned
+        if (c>7000 && c<9000) // check for plausibility
+        {   // slowly adjust detected period
+            if (c<edgeseparation-10) { edgeseparation-=3; }
+            else if (c<edgeseparation) { edgeseparation--; }
+            else if (c>edgeseparation+10) { edgeseparation+=3; }
+            else if (c>edgeseparation) { edgeseparation++; }
+        }
+        edgecounter++; 
+    } 
     else
     {
         // turn off pull-ups and trigger timer to later re-enable them
@@ -178,8 +192,8 @@ void run_amiga()
 }
 
 
-#define C64MOUSEMIN 5100
-#define C64MOUSEMAX 7200
+#define C64MOUSEMIN 5000
+unsigned int c64_mousespan; 
 
 #define C64PADDLEMIN 3900
 #define C64PADDLEMAX 7750
@@ -214,8 +228,8 @@ void run_c64()
         set_subd(SUBD_PIN6, mouse.button(0)!=0);
         long scalex = x & 0x1ff;
         long scaley = y & 0x1ff;
-        scalex = (scalex * (C64MOUSEMAX-C64MOUSEMIN)) >> 9;
-        scaley = (scaley * (C64MOUSEMAX-C64MOUSEMIN)) >> 9;
+        scalex = (scalex * (c64_mousespan)) >> 9;
+        scaley = (scaley * (c64_mousespan)) >> 9;
         set_pots(C64MOUSEMIN+(int)scalex, C64MOUSEMIN+(int)scaley);
     }
     // handle manual c64 mode switching
@@ -233,12 +247,12 @@ void run_c64()
 }
 
 
-void init_atari8()
+void init_atari()
 {
     init_subd(false,false);
 }
 
-void run_atari8()
+void run_atari()
 {
     set_subd(SUBD_PIN1, mouse.button(2)!=0);
     set_subd(SUBD_PIN3, mouse.button(0)!=0);
@@ -249,27 +263,24 @@ void run_atari8()
 
 void detect_mode()
 {
-    int c;
-    
+    edgecounter = 0;
+    edgeseparation = 8192;  // first estimate of scan interval (in arduino clocks) 
+
     init_subd(false,true);
     delay(500);
-    
-    noInterrupts();
-    c = edgecounter;
-    interrupts();
-
     init_subd(false,false);
     pinMode(SUBD_PIN9, INPUT);
     delay(500);
     
-    if (c>500) 
+    if (edgecounter>500) 
     { 
         mode=MODE_C64; 
+        c64_mousespan = edgeseparation / 4;
     }
     else 
     { 
         if (digitalRead(SUBD_PIN9)==HIGH) { mode=MODE_AMIGA; }
-        else { mode = MODE_ATARI8; }
+        else { mode = MODE_ATARI; }
     }    
 }
 
@@ -289,7 +300,7 @@ void setup()
     {
         case MODE_AMIGA:  init_amiga();   break;
         case MODE_C64:    init_c64();     break;
-        case MODE_ATARI8: init_atari8();  break;
+        case MODE_ATARI:  init_atari();  break;
     }     
 }
 
@@ -309,7 +320,7 @@ void loop()
         {
             case MODE_AMIGA:  run_amiga();  break;
             case MODE_C64:    run_c64();    break;
-            case MODE_ATARI8: run_atari8(); break;
+            case MODE_ATARI:  run_atari(); break;
         }    
     }
 }
