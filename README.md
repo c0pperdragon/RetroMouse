@@ -2,16 +2,17 @@
 Adapter to attach PS/2 compatible mice to retro computers
 
 ![alt text](doc/top.jpg "Top view")
-![alt text](doc/bottom.jpg "Bottom view")
 
-I wanted to try to make such an adapter using only one attiny1604 microcontroller 
+## Motivation
+
+I wanted to try to make such an adapter using one attiny1604 microcontroller 
 with only the minimum additional circuitry.
 This part also was one of the few that mouser actually had in stock.
 
 ## Mouse compatibility
 
-USB socket suggests that any USB mouse can be used, but that is actually not true. In 
-reality the adapter only supports the PS/2 interface protocol which can be handled by
+The USB socket suggests that any USB mouse can be used, but that is actually not true. In 
+reality the adapter only supports the simpler PS/2 interface protocol which can be handled by
 regular microcontrollers just well.
 
 For this to work, the mouse must be able to optionally support PS/2 if needed. Luckily this
