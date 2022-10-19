@@ -279,8 +279,7 @@ void detect_mode()
     }
     else 
     { 
-        if (digitalRead(SUBD_PIN9)==HIGH) { mode=MODE_AMIGA; }
-        else { mode = MODE_ATARI; }
+        mode=MODE_AMIGA; 
     }    
 }
 
