@@ -39,3 +39,7 @@ emulate a pair of paddles instead (to play Arkanoid, for example) hold down the 
 and click the left button 5 times. Doing the same thing with 6 left clicks switches back
 to standard mode.
 
+## Attention! No Hot-Plugging
+
+The adapter is not designed to be hot-plugged into the host machine or the mouse to be hot-plugged
+into the adapter. Make sure to always power down the host when changing configuration.
